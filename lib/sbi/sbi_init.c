@@ -27,6 +27,7 @@
 #include <sbi/sbi_string.h>
 #include <sbi/sbi_timer.h>
 #include <sbi/sbi_tlb.h>
+#include <sbi/sbi_trap.h>
 #include <sbi/sbi_version.h>
 
 #define BANNER                                              \
@@ -59,7 +60,7 @@ static void sbi_boot_print_banner(struct sbi_scratch *scratch)
 	sbi_printf("Build compiler: %s\n", OPENSBI_BUILD_COMPILER_VERSION);
 #endif
 
-	sbi_printf(BANNER);
+	//sbi_printf(BANNER);
 }
 
 static void sbi_boot_print_general(struct sbi_scratch *scratch)
@@ -146,7 +147,7 @@ static void sbi_boot_print_domains(struct sbi_scratch *scratch)
 		return;
 
 	/* Domain details */
-	sbi_domain_dump_all("      ");
+	//sbi_domain_dump_all("      ");
 }
 
 static void sbi_boot_print_hart(struct sbi_scratch *scratch, u32 hartid)
@@ -168,11 +169,11 @@ static void sbi_boot_print_hart(struct sbi_scratch *scratch, u32 hartid)
 	/* Boot HART details */
 	sbi_printf("Boot HART ID              : %u\n", hartid);
 	sbi_printf("Boot HART Domain          : %s\n", dom->name);
-	sbi_hart_get_priv_version_str(scratch, str, sizeof(str));
+	//sbi_hart_get_priv_version_str(scratch, str, sizeof(str));
 	sbi_printf("Boot HART Priv Version    : %s\n", str);
 	misa_string(xlen, str, sizeof(str));
 	sbi_printf("Boot HART Base ISA        : %s\n", str);
-	sbi_hart_get_extensions_str(scratch, str, sizeof(str));
+	//sbi_hart_get_extensions_str(scratch, str, sizeof(str));
 	sbi_printf("Boot HART ISA Extensions  : %s\n", str);
 	sbi_printf("Boot HART PMP Count       : %d\n",
 		   sbi_hart_pmp_count(scratch));
@@ -182,7 +183,7 @@ static void sbi_boot_print_hart(struct sbi_scratch *scratch, u32 hartid)
 		   sbi_hart_pmp_addrbits(scratch));
 	sbi_printf("Boot HART MHPM Count      : %d\n",
 		   sbi_hart_mhpm_count(scratch));
-	sbi_hart_delegation_dump(scratch, "Boot HART ", "         ");
+	//sbi_hart_delegation_dump(scratch, "Boot HART ", "         ");
 }
 
 static spinlock_t coldboot_lock = SPIN_LOCK_INITIALIZER;
@@ -309,13 +310,6 @@ static void __noreturn init_coldboot(struct sbi_scratch *scratch, u32 hartid)
 	if (rc)
 		sbi_hart_hang();
 
-	rc = sbi_pmu_init(scratch, true);
-	if (rc) {
-		sbi_printf("%s: pmu init failed (error %d)\n",
-			   __func__, rc);
-		sbi_hart_hang();
-	}
-
 	sbi_boot_print_banner(scratch);
 
 	rc = sbi_irqchip_init(scratch, true);
@@ -359,18 +353,6 @@ static void __noreturn init_coldboot(struct sbi_scratch *scratch, u32 hartid)
 	rc = sbi_hart_pmp_configure(scratch);
 	if (rc) {
 		sbi_printf("%s: PMP configure failed (error %d)\n",
-			   __func__, rc);
-		sbi_hart_hang();
-	}
-
-	/*
-	 * Note: Platform final initialization should be after finalizing
-	 * domains so that it sees correct domain assignment and PMP
-	 * configuration for FDT fixups.
-	 */
-	rc = sbi_platform_final_init(plat, true);
-	if (rc) {
-		sbi_printf("%s: platform final init failed (error %d)\n",
 			   __func__, rc);
 		sbi_hart_hang();
 	}
@@ -425,10 +407,6 @@ static void __noreturn init_warm_startup(struct sbi_scratch *scratch,
 	if (rc)
 		sbi_hart_hang();
 
-	rc = sbi_pmu_init(scratch, false);
-	if (rc)
-		sbi_hart_hang();
-
 	rc = sbi_irqchip_init(scratch, false);
 	if (rc)
 		sbi_hart_hang();
@@ -446,10 +424,6 @@ static void __noreturn init_warm_startup(struct sbi_scratch *scratch,
 		sbi_hart_hang();
 
 	rc = sbi_hart_pmp_configure(scratch);
-	if (rc)
-		sbi_hart_hang();
-
-	rc = sbi_platform_final_init(plat, false);
 	if (rc)
 		sbi_hart_hang();
 
@@ -619,15 +593,99 @@ void __noreturn sbi_exit(struct sbi_scratch *scratch)
 
 	sbi_platform_early_exit(plat);
 
-	sbi_pmu_exit(scratch);
-
 	sbi_timer_exit(scratch);
 
 	sbi_ipi_exit(scratch);
 
 	sbi_irqchip_exit(scratch);
 
-	sbi_platform_final_exit(plat);
-
 	sbi_hsm_exit(scratch);
+}
+
+/* Stubs */
+
+int sbi_pmu_ctr_incr_fw(enum sbi_pmu_fw_event_code_id fw_id)
+{
+       fw_id = fw_id;
+       return 0;
+}
+
+int sbi_emulate_csr_read(int csr_num, struct sbi_trap_regs *regs,
+			 ulong *csr_val)
+{
+	int ret = 0;
+	//struct sbi_scratch *scratch = sbi_scratch_thishart_ptr();
+	ulong prev_mode = (regs->mstatus & MSTATUS_MPP) >> MSTATUS_MPP_SHIFT;
+#if __riscv_xlen == 32
+	bool virt = (regs->mstatusH & MSTATUSH_MPV) ? true : false;
+#else
+	bool virt = (regs->mstatus & MSTATUS_MPV) ? true : false;
+#endif
+
+	switch (csr_num) {
+	case CSR_HTIMEDELTA:
+		if (prev_mode == PRV_S && !virt)
+			*csr_val = sbi_timer_get_delta();
+		else
+			ret = SBI_ENOTSUPP;
+		break;
+       case CSR_TIME:
+		/*
+		 * We emulate TIME CSR for both Host (HS/U-mode) and
+		 * Guest (VS/VU-mode).
+		 *
+		 * Faster TIME CSR reads are critical for good performance
+		 * in S-mode software so we don't check CSR permissions.
+		 */
+		*csr_val = (virt) ? sbi_timer_virt_value():
+				    sbi_timer_value();
+		break;
+	default:
+		ret = SBI_ENOTSUPP;
+		break;
+	};
+
+	if (ret)
+		sbi_dprintf("%s: hartid%d: invalid csr_num=0x%x\n",
+			    __func__, current_hartid(), csr_num);
+
+	return ret;
+}
+
+int sbi_emulate_csr_write(int csr_num, struct sbi_trap_regs *regs,
+			  ulong csr_val)
+{
+	int ret = 0;
+	ulong prev_mode = (regs->mstatus & MSTATUS_MPP) >> MSTATUS_MPP_SHIFT;
+#if __riscv_xlen == 32
+	bool virt = (regs->mstatusH & MSTATUSH_MPV) ? false : false;
+#else
+	bool virt = (regs->mstatus & MSTATUS_MPV) ? true : false;
+#endif
+
+	switch (csr_num) {
+	case CSR_HTIMEDELTA:
+		if (prev_mode == PRV_S && !virt)
+			sbi_timer_set_delta(csr_val);
+		else
+			ret = SBI_ENOTSUPP;
+		break;
+#if __riscv_xlen == 32
+	case CSR_HTIMEDELTAH:
+		if (prev_mode == PRV_S && !virt)
+			sbi_timer_set_delta_upper(csr_val);
+		else
+			ret = SBI_ENOTSUPP;
+		break;
+#endif
+	default:
+		ret = SBI_ENOTSUPP;
+		break;
+	};
+
+	if (ret)
+		sbi_dprintf("%s: hartid%d: invalid csr_num=0x%x\n",
+			    __func__, current_hartid(), csr_num);
+
+	return ret;
 }
