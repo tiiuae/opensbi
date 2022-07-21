@@ -40,9 +40,6 @@ static unsigned long hart_features_offset;
 static void mstatus_init(struct sbi_scratch *scratch)
 {
 	unsigned long mstatus_val = 0;
-	int cidx;
-	unsigned int num_mhpm = sbi_hart_mhpm_count(scratch);
-	uint64_t mhpmevent_init_val = 0;
 
 	/* Enable FPU */
 	if (misa_extension('D') || misa_extension('F'))
@@ -54,38 +51,6 @@ static void mstatus_init(struct sbi_scratch *scratch)
 
 	csr_write(CSR_MSTATUS, mstatus_val);
 
-	/* Disable user mode usage of all perf counters except default ones (CY, TM, IR) */
-	if (misa_extension('S') &&
-	    sbi_hart_has_feature(scratch, SBI_HART_HAS_SCOUNTEREN))
-		csr_write(CSR_SCOUNTEREN, 7);
-
-	/**
-	 * OpenSBI doesn't use any PMU counters in M-mode.
-	 * Supervisor mode usage for all counters are enabled by default
-	 * But counters will not run until mcountinhibit is set.
-	 */
-	if (sbi_hart_has_feature(scratch, SBI_HART_HAS_MCOUNTEREN))
-		csr_write(CSR_MCOUNTEREN, -1);
-
-	/* All programmable counters will start running at runtime after S-mode request */
-	if (sbi_hart_has_feature(scratch, SBI_HART_HAS_MCOUNTINHIBIT))
-		csr_write(CSR_MCOUNTINHIBIT, 0xFFFFFFF8);
-
-	/**
-	 * The mhpmeventn[h] CSR should be initialized with interrupt disabled
-	 * and inhibited running in M-mode during init.
-	 * To keep it simple, only contiguous mhpmcounters are supported as a
-	 * platform with discontiguous mhpmcounters may not make much sense.
-	 */
-	mhpmevent_init_val |= (MHPMEVENT_OF | MHPMEVENT_MINH);
-	for (cidx = 0; cidx < num_mhpm; cidx++) {
-#if __riscv_xlen == 32
-		csr_write_num(CSR_MHPMEVENT3 + cidx, mhpmevent_init_val & 0xFFFFFFFF);
-		csr_write_num(CSR_MHPMEVENT3H + cidx, mhpmevent_init_val >> BITS_PER_LONG);
-#else
-		csr_write_num(CSR_MHPMEVENT3 + cidx, mhpmevent_init_val);
-#endif
-	}
 	/* Disable all interrupts */
 	csr_write(CSR_MIE, 0);
 
@@ -155,19 +120,6 @@ static int delegate_traps(struct sbi_scratch *scratch)
 	csr_write(CSR_MEDELEG, exceptions);
 
 	return 0;
-}
-
-void sbi_hart_delegation_dump(struct sbi_scratch *scratch,
-			      const char *prefix, const char *suffix)
-{
-	if (!misa_extension('S'))
-		/* No delegation possible as mideleg does not exist*/
-		return;
-
-	sbi_printf("%sMIDELEG%s: 0x%" PRILX "\n",
-		   prefix, suffix, csr_read(CSR_MIDELEG));
-	sbi_printf("%sMEDELEG%s: 0x%" PRILX "\n",
-		   prefix, suffix, csr_read(CSR_MEDELEG));
 }
 
 unsigned int sbi_hart_mhpm_count(struct sbi_scratch *scratch)
@@ -270,139 +222,6 @@ bool sbi_hart_has_feature(struct sbi_scratch *scratch, unsigned long feature)
 		return false;
 }
 
-static unsigned long hart_get_features(struct sbi_scratch *scratch)
-{
-	struct hart_features *hfeatures =
-			sbi_scratch_offset_ptr(scratch, hart_features_offset);
-
-	return hfeatures->features;
-}
-
-static inline char *sbi_hart_feature_id2string(unsigned long feature)
-{
-	char *fstr = NULL;
-
-	if (!feature)
-		return NULL;
-
-	switch (feature) {
-	case SBI_HART_HAS_SCOUNTEREN:
-		fstr = "scounteren";
-		break;
-	case SBI_HART_HAS_MCOUNTEREN:
-		fstr = "mcounteren";
-		break;
-	case SBI_HART_HAS_MCOUNTINHIBIT:
-		fstr = "mcountinhibit";
-		break;
-	case SBI_HART_HAS_SSCOFPMF:
-		fstr = "sscofpmf";
-		break;
-	case SBI_HART_HAS_TIME:
-		fstr = "time";
-		break;
-	case SBI_HART_HAS_AIA:
-		fstr = "aia";
-		break;
-	default:
-		break;
-	}
-
-	return fstr;
-}
-
-/**
- * Get the hart features in string format
- *
- * @param scratch pointer to the HART scratch space
- * @param features_str pointer to a char array where the features string will be
- *		       updated
- * @param nfstr length of the features_str. The feature string will be truncated
- *		if nfstr is not long enough.
- */
-void sbi_hart_get_features_str(struct sbi_scratch *scratch,
-			       char *features_str, int nfstr)
-{
-	unsigned long features, feat = 1UL;
-	char *temp;
-	int offset = 0;
-
-	if (!features_str || nfstr <= 0)
-		return;
-	sbi_memset(features_str, 0, nfstr);
-
-	features = hart_get_features(scratch);
-	if (!features)
-		goto done;
-
-	do {
-		if (features & feat) {
-			temp = sbi_hart_feature_id2string(feat);
-			if (temp) {
-				sbi_snprintf(features_str + offset, nfstr,
-					     "%s,", temp);
-				offset = offset + sbi_strlen(temp) + 1;
-			}
-		}
-		feat = feat << 1;
-	} while (feat <= SBI_HART_HAS_LAST_FEATURE);
-
-done:
-	if (offset)
-		features_str[offset - 1] = '\0';
-	else
-		sbi_strncpy(features_str, "none", nfstr);
-}
-
-static unsigned long hart_pmp_get_allowed_addr(void)
-{
-	unsigned long val = 0;
-	struct sbi_trap_info trap = {0};
-
-	csr_write_allowed(CSR_PMPCFG0, (ulong)&trap, 0);
-	if (trap.cause)
-		return 0;
-
-	csr_write_allowed(CSR_PMPADDR0, (ulong)&trap, PMP_ADDR_MASK);
-	if (!trap.cause) {
-		val = csr_read_allowed(CSR_PMPADDR0, (ulong)&trap);
-		if (trap.cause)
-			val = 0;
-	}
-
-	return val;
-}
-
-static int hart_pmu_get_allowed_bits(void)
-{
-	unsigned long val = ~(0UL);
-	struct sbi_trap_info trap = {0};
-	int num_bits = 0;
-
-	/**
-	 * It is assumed that platforms will implement same number of bits for
-	 * all the performance counters including mcycle/minstret.
-	 */
-	csr_write_allowed(CSR_MHPMCOUNTER3, (ulong)&trap, val);
-	if (!trap.cause) {
-		val = csr_read_allowed(CSR_MHPMCOUNTER3, (ulong)&trap);
-		if (trap.cause)
-			return 0;
-	}
-	num_bits = sbi_fls(val) + 1;
-#if __riscv_xlen == 32
-	csr_write_allowed(CSR_MHPMCOUNTER3H, (ulong)&trap, val);
-	if (!trap.cause) {
-		val = csr_read_allowed(CSR_MHPMCOUNTER3H, (ulong)&trap);
-		if (trap.cause)
-			return num_bits;
-	}
-	num_bits += sbi_fls(val) + 1;
-
-#endif
-
-	return num_bits;
-}
 
 static void hart_detect_features(struct sbi_scratch *scratch)
 {
@@ -416,111 +235,12 @@ static void hart_detect_features(struct sbi_scratch *scratch)
 	hfeatures->pmp_count = 0;
 	hfeatures->mhpm_count = 0;
 
-#define __check_csr(__csr, __rdonly, __wrval, __field, __skip)	\
-	val = csr_read_allowed(__csr, (ulong)&trap);			\
-	if (!trap.cause) {						\
-		if (__rdonly) {						\
-			(hfeatures->__field)++;				\
-		} else {						\
-			csr_write_allowed(__csr, (ulong)&trap, __wrval);\
-			if (!trap.cause) {				\
-				if (csr_swap(__csr, val) == __wrval)	\
-					(hfeatures->__field)++;		\
-				else					\
-					goto __skip;			\
-			} else {					\
-				goto __skip;				\
-			}						\
-		}							\
-	} else {							\
-		goto __skip;						\
-	}
-#define __check_csr_2(__csr, __rdonly, __wrval, __field, __skip)	\
-	__check_csr(__csr + 0, __rdonly, __wrval, __field, __skip)	\
-	__check_csr(__csr + 1, __rdonly, __wrval, __field, __skip)
-#define __check_csr_4(__csr, __rdonly, __wrval, __field, __skip)	\
-	__check_csr_2(__csr + 0, __rdonly, __wrval, __field, __skip)	\
-	__check_csr_2(__csr + 2, __rdonly, __wrval, __field, __skip)
-#define __check_csr_8(__csr, __rdonly, __wrval, __field, __skip)	\
-	__check_csr_4(__csr + 0, __rdonly, __wrval, __field, __skip)	\
-	__check_csr_4(__csr + 4, __rdonly, __wrval, __field, __skip)
-#define __check_csr_16(__csr, __rdonly, __wrval, __field, __skip)	\
-	__check_csr_8(__csr + 0, __rdonly, __wrval, __field, __skip)	\
-	__check_csr_8(__csr + 8, __rdonly, __wrval, __field, __skip)
-#define __check_csr_32(__csr, __rdonly, __wrval, __field, __skip)	\
-	__check_csr_16(__csr + 0, __rdonly, __wrval, __field, __skip)	\
-	__check_csr_16(__csr + 16, __rdonly, __wrval, __field, __skip)
-#define __check_csr_64(__csr, __rdonly, __wrval, __field, __skip)	\
-	__check_csr_32(__csr + 0, __rdonly, __wrval, __field, __skip)	\
-	__check_csr_32(__csr + 32, __rdonly, __wrval, __field, __skip)
-
-	/**
-	 * Detect the allowed address bits & granularity. At least PMPADDR0
-	 * should be implemented.
-	 */
-	val = hart_pmp_get_allowed_addr();
-	if (val) {
-		hfeatures->pmp_gran =  1 << (sbi_ffs(val) + 2);
-		hfeatures->pmp_addr_bits = sbi_fls(val) + 1;
-		/* Detect number of PMP regions. At least PMPADDR0 should be implemented*/
-		__check_csr_64(CSR_PMPADDR0, 0, val, pmp_count, __pmp_skip);
-	}
-__pmp_skip:
-
-	/* Detect number of MHPM counters */
-	__check_csr(CSR_MHPMCOUNTER3, 0, 1UL, mhpm_count, __mhpm_skip);
-	hfeatures->mhpm_bits = hart_pmu_get_allowed_bits();
-
-	__check_csr_4(CSR_MHPMCOUNTER4, 0, 1UL, mhpm_count, __mhpm_skip);
-	__check_csr_8(CSR_MHPMCOUNTER8, 0, 1UL, mhpm_count, __mhpm_skip);
-	__check_csr_16(CSR_MHPMCOUNTER16, 0, 1UL, mhpm_count, __mhpm_skip);
-
-	/**
-	 * No need to check for MHPMCOUNTERH for RV32 as they are expected to be
-	 * implemented if MHPMCOUNTER is implemented.
-	 */
-
-__mhpm_skip:
-
-#undef __check_csr_64
-#undef __check_csr_32
-#undef __check_csr_16
-#undef __check_csr_8
-#undef __check_csr_4
-#undef __check_csr_2
-#undef __check_csr
-
 	/* Detect if hart supports SCOUNTEREN feature */
 	val = csr_read_allowed(CSR_SCOUNTEREN, (unsigned long)&trap);
 	if (!trap.cause) {
 		csr_write_allowed(CSR_SCOUNTEREN, (unsigned long)&trap, val);
 		if (!trap.cause)
 			hfeatures->features |= SBI_HART_HAS_SCOUNTEREN;
-	}
-
-	/* Detect if hart supports MCOUNTEREN feature */
-	val = csr_read_allowed(CSR_MCOUNTEREN, (unsigned long)&trap);
-	if (!trap.cause) {
-		csr_write_allowed(CSR_MCOUNTEREN, (unsigned long)&trap, val);
-		if (!trap.cause)
-			hfeatures->features |= SBI_HART_HAS_MCOUNTEREN;
-	}
-
-	/* Detect if hart supports MCOUNTINHIBIT feature */
-	val = csr_read_allowed(CSR_MCOUNTINHIBIT, (unsigned long)&trap);
-	if (!trap.cause) {
-		csr_write_allowed(CSR_MCOUNTINHIBIT, (unsigned long)&trap, val);
-		if (!trap.cause)
-			hfeatures->features |= SBI_HART_HAS_MCOUNTINHIBIT;
-	}
-
-	/* Counter overflow/filtering is not useful without mcounter/inhibit */
-	if (hfeatures->features & SBI_HART_HAS_MCOUNTINHIBIT &&
-	    hfeatures->features & SBI_HART_HAS_MCOUNTEREN) {
-		/* Detect if hart supports sscofpmf */
-		csr_read_allowed(CSR_SCOUNTOVF, (unsigned long)&trap);
-		if (!trap.cause)
-			hfeatures->features |= SBI_HART_HAS_SSCOFPMF;
 	}
 
 	/* Detect if hart supports time CSR */
@@ -573,6 +293,7 @@ int sbi_hart_init(struct sbi_scratch *scratch, bool cold_boot)
 
 void __attribute__((noreturn)) sbi_hart_hang(void)
 {
+	sbi_printf("We are dead\n");
 	while (1)
 		wfi();
 	__builtin_unreachable();
