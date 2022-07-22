@@ -105,6 +105,7 @@ void sbi_hsm_prepare_next_jump(struct sbi_scratch *scratch, u32 hartid)
 		sbi_hart_hang();
 }
 
+#if 0
 static void sbi_hsm_hart_wait(struct sbi_scratch *scratch, u32 hartid)
 {
 	unsigned long saved_mie;
@@ -129,6 +130,7 @@ static void sbi_hsm_hart_wait(struct sbi_scratch *scratch, u32 hartid)
 	 * clear it for current HART via sbi_platform_ipi_init().
 	 */
 }
+#endif
 
 const struct sbi_hsm_device *sbi_hsm_get_device(void)
 {
@@ -203,7 +205,10 @@ int sbi_hsm_init(struct sbi_scratch *scratch, u32 hartid, bool cold_boot)
 				    SBI_HSM_STATE_STOPPED);
 		}
 	} else {
-		sbi_hsm_hart_wait(scratch, hartid);
+		//sbi_hsm_hart_wait(scratch, hartid);
+		hdata = sbi_scratch_offset_ptr(scratch,
+									    hart_data_offset);
+		ATOMIC_INIT(&hdata->state, SBI_HSM_STATE_START_PENDING);
 	}
 
 	return 0;
