@@ -690,6 +690,7 @@ int sbi_domain_finalize(struct sbi_scratch *scratch, u32 cold_hartid)
 			continue;
 
 		/* Startup boot HART of domain */
+#if 0
 		if (dhart == cold_hartid) {
 			scratch->next_addr = dom->next_addr;
 			scratch->next_mode = dom->next_mode;
@@ -706,6 +707,7 @@ int sbi_domain_finalize(struct sbi_scratch *scratch, u32 cold_hartid)
 				return rc;
 			}
 		}
+#endif
 	}
 
 	/*
