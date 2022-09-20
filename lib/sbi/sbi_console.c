@@ -13,6 +13,7 @@
 #include <sbi/sbi_platform.h>
 #include <sbi/sbi_scratch.h>
 
+#ifdef __SBI_CONSOLE_ENABLE
 static const struct sbi_console_device *console_dev = NULL;
 static spinlock_t console_out_lock	       = SPIN_LOCK_INITIALIZER;
 
@@ -428,3 +429,4 @@ int sbi_console_init(struct sbi_scratch *scratch)
 {
 	return sbi_platform_console_init(sbi_platform_ptr(scratch));
 }
+#endif
