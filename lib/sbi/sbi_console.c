@@ -16,6 +16,7 @@
 
 #define CONSOLE_TBUF_MAX 256
 
+#ifdef __SBI_CONSOLE_ENABLE
 static const struct sbi_console_device *console_dev = NULL;
 static char console_tbuf[CONSOLE_TBUF_MAX];
 static u32 console_tbuf_len;
@@ -489,3 +490,4 @@ int sbi_console_init(struct sbi_scratch *scratch)
 
 	return rc;
 }
+#endif
