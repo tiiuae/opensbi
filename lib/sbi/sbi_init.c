@@ -346,10 +346,6 @@ static void init_warm_startup(struct sbi_scratch *scratch, u32 hartid)
 	if (!init_count_offset)
 		sbi_hart_hang();
 
-	rc = sbi_hsm_init(scratch, hartid, FALSE);
-	if (rc)
-		sbi_hart_hang();
-
 	rc = sbi_platform_early_init(plat, FALSE);
 	if (rc)
 		sbi_hart_hang();
@@ -404,8 +400,13 @@ static void init_warm_resume(struct sbi_scratch *scratch)
 static void __noreturn init_warmboot(struct sbi_scratch *scratch, u32 hartid)
 {
 	int hstate;
+	int rc;
 
 	wait_for_coldboot(scratch, hartid);
+
+	rc = sbi_hsm_init(scratch, hartid, FALSE);
+	if (rc)
+		sbi_hart_hang();
 
 	hstate = sbi_hsm_hart_get_state(sbi_domain_thishart_ptr(), hartid);
 	if (hstate < 0)
