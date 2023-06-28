@@ -19,7 +19,7 @@
  * also represents the maximum number of HART ids generic OpenSBI
  * can handle.
  */
-#define SBI_HARTMASK_MAX_BITS		5
+#define SBI_HARTMASK_MAX_BITS		128
 
 /** Representation of hartmask */
 struct sbi_hartmask {
