@@ -17,9 +17,13 @@
 
 static inline unsigned long sbi_ecall_vendor_id(void)
 {
+#if 0
 	return SBI_EXT_VENDOR_START +
 		(csr_read(CSR_MVENDORID) &
 		 (SBI_EXT_VENDOR_END - SBI_EXT_VENDOR_START));
+#endif
+	/* CSR_MVENDORIR is 0 with Microchip products, use a known id */
+	return 0x09000029;
 }
 
 static int sbi_ecall_vendor_handler(unsigned long extid, unsigned long funcid,

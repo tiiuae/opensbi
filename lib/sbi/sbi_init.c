@@ -39,7 +39,7 @@
 	"  \\____/| .__/ \\___|_| |_|_____/|____/_____|\n"  \
 	"        | |\n"                                     \
 	"        |_|\n\n"
-
+#if 0
 static void sbi_boot_print_banner(struct sbi_scratch *scratch)
 {
 	if (scratch->options & SBI_SCRATCH_NO_BOOT_PRINTS)
@@ -62,7 +62,8 @@ static void sbi_boot_print_banner(struct sbi_scratch *scratch)
 
 	//sbi_printf(BANNER);
 }
-
+#endif
+#if 0
 static void sbi_boot_print_general(struct sbi_scratch *scratch)
 {
 	char str[128];
@@ -147,7 +148,7 @@ static void sbi_boot_print_domains(struct sbi_scratch *scratch)
 		return;
 
 	/* Domain details */
-	//sbi_domain_dump_all("      ");
+	sbi_domain_dump_all("      ");
 }
 
 static void sbi_boot_print_hart(struct sbi_scratch *scratch, u32 hartid)
@@ -185,7 +186,7 @@ static void sbi_boot_print_hart(struct sbi_scratch *scratch, u32 hartid)
 		   sbi_hart_mhpm_count(scratch));
 	//sbi_hart_delegation_dump(scratch, "Boot HART ", "         ");
 }
-
+#endif
 static spinlock_t coldboot_lock = SPIN_LOCK_INITIALIZER;
 static struct sbi_hartmask coldboot_wait_hmask = { 0 };
 
@@ -310,7 +311,9 @@ static void __noreturn init_coldboot(struct sbi_scratch *scratch, u32 hartid)
 	if (rc)
 		sbi_hart_hang();
 
+#if 0
 	sbi_boot_print_banner(scratch);
+#endif
 
 	rc = sbi_irqchip_init(scratch, true);
 	if (rc) {
@@ -368,11 +371,13 @@ static void __noreturn init_coldboot(struct sbi_scratch *scratch, u32 hartid)
 		sbi_hart_hang();
 	}
 
+#if 0
 	sbi_boot_print_general(scratch);
 
 	sbi_boot_print_domains(scratch);
 
 	sbi_boot_print_hart(scratch, hartid);
+#endif
 
 	wake_coldboot_harts(scratch, hartid);
 

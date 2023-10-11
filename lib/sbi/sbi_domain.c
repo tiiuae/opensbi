@@ -727,6 +727,7 @@ int sbi_domain_init(struct sbi_scratch *scratch, u32 cold_hartid)
 	struct sbi_domain_memregion *root_memregs;
 	const struct sbi_platform *plat = sbi_platform_ptr(scratch);
 
+#if 0
 	if (scratch->fw_rw_offset == 0 ||
 	    (scratch->fw_rw_offset & (scratch->fw_rw_offset - 1)) != 0) {
 		sbi_printf("%s: fw_rw_offset is not a power of 2 (0x%lx)\n",
@@ -739,6 +740,7 @@ int sbi_domain_init(struct sbi_scratch *scratch, u32 cold_hartid)
 			   __func__);
 		return SBI_EINVAL;
 	}
+#endif
 
 	domain_hart_ptr_offset = sbi_scratch_alloc_type_offset(void *);
 	if (!domain_hart_ptr_offset)
@@ -761,6 +763,7 @@ int sbi_domain_init(struct sbi_scratch *scratch, u32 cold_hartid)
 	root.possible_harts = root_hmask;
 
 	/* Root domain firmware memory region */
+#if 0
 	sbi_domain_memregion_init(scratch->fw_start, scratch->fw_rw_offset,
 				  (SBI_DOMAIN_MEMREGION_M_READABLE |
 				   SBI_DOMAIN_MEMREGION_M_EXECUTABLE),
@@ -771,7 +774,7 @@ int sbi_domain_init(struct sbi_scratch *scratch, u32 cold_hartid)
 				  (SBI_DOMAIN_MEMREGION_M_READABLE |
 				   SBI_DOMAIN_MEMREGION_M_WRITABLE),
 				  &root_memregs[root_memregs_count++]);
-
+#endif
 	root.fw_region_inited = true;
 
 	/* Root domain allow everything memory region */
