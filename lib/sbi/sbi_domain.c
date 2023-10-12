@@ -305,12 +305,14 @@ static int sanitize_domain(const struct sbi_platform *plat,
 	sbi_domain_for_each_memregion(dom, reg)
 		count++;
 
+#if 0
 	/* Check presence of firmware regions */
 	if (!dom->fw_region_inited) {
 		sbi_printf("%s: %s does not have firmware region\n",
 			   __func__, dom->name);
 		return SBI_EINVAL;
 	}
+#endif
 
 	/* Sort the memory regions */
 	for (i = 0; i < (count - 1); i++) {
