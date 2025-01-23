@@ -490,4 +490,9 @@ int sbi_console_init(struct sbi_scratch *scratch)
 
 	return rc;
 }
+#else
+int sbi_print_empty(const char *fmt, ...)
+{
+	return 0;
+}
 #endif

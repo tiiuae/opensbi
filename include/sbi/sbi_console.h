@@ -64,7 +64,7 @@ int sbi_console_init(struct sbi_scratch *scratch);
 
 #else
 #include <sbi/sbi_hart.h>
-inline int sbi_print_empty(const char *fmt, ...) { return 0; }
+int sbi_print_empty(const char *fmt, ...);
 inline void sbi_panic_noprint(const char *fmt, ...) { sbi_hart_hang(); }
 #define sbi_isprintable(ch) false
 #define sbi_getc() 0
